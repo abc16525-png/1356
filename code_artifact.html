@@ -1,0 +1,1095 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>冷凍庫棧板管理 (3層 × 10走道 × 10棧板)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Noto Sans TC & Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['-apple-system', 'BlinkMacSystemFont', 'Inter', 'Noto Sans TC', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #ffffff;
+            color: #1e293b;
+            -webkit-tap-highlight-color: transparent;
+        }
+        /* 自訂下拉箭頭與原圖一致 */
+        .custom-select {
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23334155' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 15 5 5 5-5'/%3E%3Cpath d='m7 9 5-5 5 5'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 0.6rem center;
+            background-size: 0.85rem;
+        }
+        /* 網格單元格點擊回饋 */
+        .grid-cell {
+            transition: transform 0.1s ease, background-color 0.15s ease, opacity 0.15s ease;
+        }
+        .grid-cell:active {
+            transform: scale(0.93);
+        }
+        /* 隱藏數字輸入框預設上下箭頭，保持視覺乾淨 */
+        input[type="number"]::-webkit-inner-spin-button,
+        input[type="number"]::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <!-- 主容器：手機單手操作友善寬度，桌機亦置中清晰 -->
+    <div class="w-full max-w-lg mx-auto px-3.5 pt-3 pb-12 space-y-3.5">
+
+        <!-- 1. 頂部標題列 -->
+        <header class="flex items-center justify-between gap-2 pt-1">
+            <div class="flex items-center gap-1.5 min-w-0">
+                <span class="text-xl leading-none select-none">❄️</span>
+                <h1 class="text-lg sm:text-xl font-bold tracking-tight text-slate-900 truncate">冷凍庫棧板管理</h1>
+            </div>
+
+            <!-- 右側精簡工具按鈕 -->
+            <div class="flex items-center gap-1.5 shrink-0">
+                <button onclick="exportToCSV()" class="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 rounded-lg border border-slate-200 transition flex items-center gap-1">
+                    <span>匯出 CSV</span>
+                </button>
+                <div class="relative">
+                    <button onclick="toggleMoreMenu(event)" id="moreMenuBtn" class="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg border border-slate-200 transition">
+                        •••
+                    </button>
+                    <div id="moreMenuDropdown" class="hidden absolute right-0 mt-1.5 w-44 bg-white rounded-xl shadow-lg border border-slate-200 py-1 z-40 text-xs">
+                        <button onclick="confirmLoadSample(); closeMoreMenu();" class="w-full text-left px-3.5 py-2.5 hover:bg-slate-50 text-slate-700 font-medium">
+                            載入範例庫存資料
+                        </button>
+                        <div class="border-t border-slate-100"></div>
+                        <button onclick="confirmResetAll(); closeMoreMenu();" class="w-full text-left px-3.5 py-2.5 hover:bg-rose-50 text-rose-600 font-medium">
+                            清空全部 300 格
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- 2. 層別切換按鈕列（Pill Tabs：3 層） -->
+        <section class="grid grid-cols-3 gap-2" id="layerTabsContainer">
+            <button onclick="selectLayer(1)" data-layer="1" class="layer-tab py-2 px-3 rounded-xl text-sm font-semibold transition text-center bg-[#1D63DC] text-white shadow-xs">
+                第1層 · <span id="layerCount1">0</span>
+            </button>
+            <button onclick="selectLayer(2)" data-layer="2" class="layer-tab py-2 px-3 rounded-xl text-sm font-medium transition text-center bg-[#F1F5F9] text-slate-700 hover:bg-slate-200">
+                第2層 · <span id="layerCount2">0</span>
+            </button>
+            <button onclick="selectLayer(3)" data-layer="3" class="layer-tab py-2 px-3 rounded-xl text-sm font-medium transition text-center bg-[#F1F5F9] text-slate-700 hover:bg-slate-200">
+                第3層 · <span id="layerCount3">0</span>
+            </button>
+        </section>
+
+        <!-- 3. 篩選控制區 -->
+        <section class="space-y-2.5">
+            <!-- 並排三個下拉選單 -->
+            <div class="grid grid-cols-3 gap-2">
+                <select id="filterVendor" onchange="handleFilterChange()" class="custom-select w-full pl-2.5 pr-6 py-2 bg-white border border-slate-300 rounded-xl text-xs sm:text-sm font-medium text-slate-800 focus:outline-none focus:border-blue-500 truncate">
+                    <option value="">全部廠商</option>
+                </select>
+                <select id="filterItem" onchange="handleFilterChange()" class="custom-select w-full pl-2.5 pr-6 py-2 bg-white border border-slate-300 rounded-xl text-xs sm:text-sm font-medium text-slate-800 focus:outline-none focus:border-blue-500 truncate">
+                    <option value="">全部品項</option>
+                </select>
+                <select id="filterSpec" onchange="handleFilterChange()" class="custom-select w-full pl-2.5 pr-6 py-2 bg-white border border-slate-300 rounded-xl text-xs sm:text-sm font-medium text-slate-800 focus:outline-none focus:border-blue-500 truncate">
+                    <option value="">全部規格</option>
+                </select>
+            </div>
+
+            <!-- 清除篩選按鈕 -->
+            <div>
+                <button onclick="clearFilters()" class="px-3.5 py-1.5 bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-800 text-xs sm:text-sm font-medium border border-slate-300 rounded-xl transition">
+                    清除篩選
+                </button>
+            </div>
+
+            <!-- 存放超過 [ 30 ] 天標紅設定列 -->
+            <div class="flex items-center gap-2 text-xs sm:text-sm text-slate-600 pt-0.5">
+                <span>存放超過</span>
+                <input type="number" id="overdueDaysInput" min="1" max="999" value="30" oninput="handleOverdueDaysChange()" class="w-20 px-2.5 py-1.5 bg-white border border-slate-300 rounded-xl text-slate-900 font-semibold text-sm focus:outline-none focus:border-blue-500">
+                <span>天標紅</span>
+            </div>
+        </section>
+
+        <!-- 4. 10x10 儲位平面網格（單層 100 板） -->
+        <section class="pt-1">
+            <!-- 操作提示字 -->
+            <p class="text-xs text-slate-500 mb-2 tracking-wide">
+                橫向：棧板 1–10　直向：走道 1–10　點格子即可填寫
+            </p>
+
+            <!-- 10x10 網格容器（含左側 Y 軸標號 + 頂部 X 軸標號） -->
+            <div class="w-full select-none">
+                <!-- 頂部 X 軸：棧板 1-10 -->
+                <div class="grid grid-cols-[20px_repeat(10,minmax(0,1fr))] gap-[3px] mb-1 text-center">
+                    <div></div>
+                    <div class="text-[11px] font-medium text-slate-500">1</div>
+                    <div class="text-[11px] font-medium text-slate-500">2</div>
+                    <div class="text-[11px] font-medium text-slate-500">3</div>
+                    <div class="text-[11px] font-medium text-slate-500">4</div>
+                    <div class="text-[11px] font-medium text-slate-500">5</div>
+                    <div class="text-[11px] font-medium text-slate-500">6</div>
+                    <div class="text-[11px] font-medium text-slate-500">7</div>
+                    <div class="text-[11px] font-medium text-slate-500">8</div>
+                    <div class="text-[11px] font-medium text-slate-500">9</div>
+                    <div class="text-[11px] font-medium text-slate-500">10</div>
+                </div>
+
+                <!-- 10 列走道 (直向 1–10) -->
+                <div id="palletGridBody" class="space-y-[3px]">
+                    <!-- 動態渲染 10x10 格子 -->
+                </div>
+            </div>
+        </section>
+
+        <!-- 5. 出倉清單（先進先出 FIFO 排序） -->
+        <section class="pt-3 border-t border-slate-100 space-y-2.5">
+            <div class="flex items-center justify-between">
+                <h2 class="text-base font-bold text-slate-900">出倉清單</h2>
+                <button id="showAllFifoBtn" onclick="toggleShowAllFifo()" class="text-xs font-medium text-blue-600 hover:text-blue-800 px-2 py-1 rounded-lg hover:bg-blue-50 transition">
+                    顯示全部庫存
+                </button>
+            </div>
+
+            <p id="fifoHelperText" class="text-xs sm:text-sm text-slate-500 leading-relaxed">
+                選擇上方廠商或品項，這裡會列出所有符合的棧板（入庫最久的排最前面，先進先出）。
+            </p>
+
+            <!-- FIFO 棧板卡片列表 -->
+            <div id="fifoListContainer" class="space-y-2"></div>
+        </section>
+
+        <!-- 6. 底部摺疊面板：「▶ 管理廠商 / 品項清單」 -->
+        <section class="pt-2">
+            <div class="border border-slate-300 rounded-xl bg-white overflow-hidden">
+                <button type="button" onclick="toggleMasterAccordion()" class="w-full px-3.5 py-3 text-left flex items-center justify-between hover:bg-slate-50 transition">
+                    <div class="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                        <span id="accordionArrow" class="text-[10px] text-slate-700 transition-transform duration-200">▶</span>
+                        <span>管理廠商 / 品項清單</span>
+                    </div>
+                    <span class="text-xs text-slate-400">預先建立下拉選項</span>
+                </button>
+
+                <!-- 展開內容 -->
+                <div id="masterAccordionBody" class="hidden border-t border-slate-200 p-3.5 bg-slate-50/70 space-y-4">
+                    
+                    <!-- 廠商管理 -->
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1.5">常用廠商清單</label>
+                        <div class="flex gap-1.5 mb-2">
+                            <input type="text" id="newVendorInput" placeholder="輸入新廠商名稱..." class="flex-1 px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs focus:outline-none focus:border-blue-500">
+                            <button type="button" onclick="addMasterItem('vendors', 'newVendorInput')" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg transition">新增</button>
+                        </div>
+                        <div id="masterVendorsTags" class="flex flex-wrap gap-1.5"></div>
+                    </div>
+
+                    <!-- 品項管理 -->
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1.5">常用品項清單</label>
+                        <div class="flex gap-1.5 mb-2">
+                            <input type="text" id="newItemInput" placeholder="輸入新品項名稱..." class="flex-1 px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs focus:outline-none focus:border-blue-500">
+                            <button type="button" onclick="addMasterItem('items', 'newItemInput')" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg transition">新增</button>
+                        </div>
+                        <div id="masterItemsTags" class="flex flex-wrap gap-1.5"></div>
+                    </div>
+
+                    <!-- 規格管理 -->
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1.5">常用規格清單</label>
+                        <div class="flex gap-1.5 mb-2">
+                            <input type="text" id="newSpecInput" placeholder="例如：15kg/箱、20kg/件..." class="flex-1 px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs focus:outline-none focus:border-blue-500">
+                            <button type="button" onclick="addMasterItem('specs', 'newSpecInput')" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg transition">新增</button>
+                        </div>
+                        <div id="masterSpecsTags" class="flex flex-wrap gap-1.5"></div>
+                    </div>
+
+                    <!-- 快捷資料操作 -->
+                    <div class="pt-2 border-t border-slate-200 flex items-center justify-between gap-2">
+                        <button type="button" onclick="confirmLoadSample()" class="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-medium rounded-lg transition">
+                            載入範例庫存
+                        </button>
+                        <button type="button" onclick="exportToCSV()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg transition">
+                            匯出全部庫存 CSV
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- 格子點擊填寫 / 編輯 / 出倉彈窗 (Bottom Sheet on Mobile, Modal on Desktop) -->
+    <!-- ===================================================================== -->
+    <div id="slotModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-[1px] z-50 hidden flex items-end sm:items-center justify-center">
+        <div class="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-[slideUp_0.18s_ease-out]">
+            <!-- Header -->
+            <div class="px-4 py-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
+                <div>
+                    <h3 id="modalLocationTitle" class="font-bold text-base text-slate-900">第1層 - 走道 1 - 棧板 1</h3>
+                    <p id="modalStatusSubtitle" class="text-xs text-slate-500 mt-0.5">空儲位 · 請填寫入庫資訊</p>
+                </div>
+                <button type="button" onclick="closeSlotModal()" class="w-8 h-8 rounded-full bg-slate-200/70 hover:bg-slate-300 text-slate-600 flex items-center justify-center text-sm font-bold transition">
+                    ✕
+                </button>
+            </div>
+
+            <!-- Form -->
+            <form id="slotForm" onsubmit="saveSlotForm(event)" class="p-4 space-y-3.5">
+                <input type="hidden" id="editLayer">
+                <input type="hidden" id="editAisle">
+                <input type="hidden" id="editPallet">
+
+                <!-- 1. 入倉時間 -->
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <label for="inputInboundTime" class="text-xs font-bold text-slate-700">入倉時間 <span class="text-rose-500">*</span></label>
+                        <button type="button" onclick="fillCurrentDateTime()" class="text-[11px] font-semibold text-blue-600 hover:underline">
+                            帶入現在時間
+                        </button>
+                    </div>
+                    <input type="datetime-local" id="inputInboundTime" required class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm text-slate-900 focus:outline-none focus:border-blue-500">
+                </div>
+
+                <!-- 2. 廠商（下拉快速選擇 + 直接輸入新廠商） -->
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <label for="inputVendor" class="text-xs font-bold text-slate-700">廠商 <span class="text-rose-500">*</span></label>
+                        <select id="quickSelectVendor" onchange="syncQuickSelect('quickSelectVendor', 'inputVendor')" class="text-[11px] text-blue-600 bg-blue-50 border border-blue-200 rounded-md px-1.5 py-0.5 focus:outline-none max-w-[150px]">
+                            <option value="">從常用廠商選取...</option>
+                        </select>
+                    </div>
+                    <input type="text" id="inputVendor" list="datalistVendors" required placeholder="輸入或從右上角選取廠商..." class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm text-slate-900 focus:outline-none focus:border-blue-500">
+                </div>
+
+                <!-- 3. 品項（下拉快速選擇 + 直接輸入新品項） -->
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <label for="inputItem" class="text-xs font-bold text-slate-700">品項 <span class="text-rose-500">*</span></label>
+                        <select id="quickSelectItem" onchange="syncQuickSelect('quickSelectItem', 'inputItem')" class="text-[11px] text-blue-600 bg-blue-50 border border-blue-200 rounded-md px-1.5 py-0.5 focus:outline-none max-w-[150px]">
+                            <option value="">從常用品項選取...</option>
+                        </select>
+                    </div>
+                    <input type="text" id="inputItem" list="datalistItems" required placeholder="輸入或從右上角選取品項..." class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm text-slate-900 focus:outline-none focus:border-blue-500">
+                </div>
+
+                <!-- 4. 規格（下拉快速選擇 + 直接輸入新規格） -->
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <label for="inputSpec" class="text-xs font-bold text-slate-700">規格 <span class="text-rose-500">*</span></label>
+                        <select id="quickSelectSpec" onchange="syncQuickSelect('quickSelectSpec', 'inputSpec')" class="text-[11px] text-blue-600 bg-blue-50 border border-blue-200 rounded-md px-1.5 py-0.5 focus:outline-none max-w-[150px]">
+                            <option value="">從常用規格選取...</option>
+                        </select>
+                    </div>
+                    <input type="text" id="inputSpec" list="datalistSpecs" required placeholder="例如：15kg/箱、20kg/件..." class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm text-slate-900 focus:outline-none focus:border-blue-500">
+                </div>
+
+                <!-- 底部操作按鈕 -->
+                <div class="pt-2 flex items-center gap-2">
+                    <button type="button" id="btnOutboundSlot" onclick="confirmOutboundCurrentSlot()" class="hidden px-3.5 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-xl text-xs sm:text-sm font-bold transition shrink-0">
+                        出倉（清空此格）
+                    </button>
+                    <button type="submit" class="flex-1 py-2.5 bg-[#1D63DC] hover:bg-blue-700 active:bg-blue-800 text-white rounded-xl text-sm font-bold shadow-sm transition">
+                        儲存
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- 自訂確認對話框 (取代 alert / confirm) -->
+    <!-- ===================================================================== -->
+    <div id="confirmDialog" class="fixed inset-0 bg-slate-900/50 z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl max-w-xs w-full p-4 shadow-xl border border-slate-200 space-y-3">
+            <h4 id="confirmTitle" class="font-bold text-base text-slate-900">確認操作</h4>
+            <p id="confirmDesc" class="text-xs sm:text-sm text-slate-600 leading-relaxed"></p>
+            <div class="flex justify-end gap-2 pt-1">
+                <button type="button" onclick="closeConfirmDialog()" class="px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200">取消</button>
+                <button type="button" id="confirmOkBtn" class="px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold text-white bg-rose-600 hover:bg-rose-700">確定</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast 輕量提示 -->
+    <div id="toastBox" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none transition-all duration-200 opacity-0 translate-y-2">
+        <div id="toastMsg" class="bg-slate-800 text-white text-xs font-medium px-4 py-2.5 rounded-full shadow-lg whitespace-nowrap"></div>
+    </div>
+
+    <!-- 原生輸入自動完成 Datalists -->
+    <datalist id="datalistVendors"></datalist>
+    <datalist id="datalistItems"></datalist>
+    <datalist id="datalistSpecs"></datalist>
+
+    <!-- ===================================================================== -->
+    <!-- 核心邏輯 JavaScript -->
+    <!-- ===================================================================== -->
+    <script>
+        const STORAGE_KEY_SLOTS = 'cold_wms_slots_3x10x10_v1';
+        const STORAGE_KEY_MASTER = 'cold_wms_master_lists_v1';
+        const STORAGE_KEY_SETTINGS = 'cold_wms_settings_v1';
+
+        const LAYERS = [1, 2, 3];
+        const AISLES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        const PALLETS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+        // 狀態變數
+        let slotsData = {}; // key: "L1-A1-P1" -> { layer, aisle, pallet, inboundTime, vendor, item, spec }
+        let masterLists = {
+            vendors: ['佰研', '大成食品', '卜蜂企業', '洽富實業', '超秦企業'],
+            items: ['去骨雞腿肉', '冷凍全雞', '清雞胸肉', '三節翅', '冷凍白蝦', '豬五花肉片'],
+            specs: ['15kg/箱', '20kg/件', '2kg×6包/箱', '10kg/箱', '散裝棧板']
+        };
+        let settings = {
+            overdueDays: 30
+        };
+
+        let currentLayer = 1;
+        let filterVendor = '';
+        let filterItem = '';
+        let filterSpec = '';
+        let showAllFifo = false;
+        let toastTimer = null;
+
+        // 啟動初始化
+        window.onload = function () {
+            loadFromStorage();
+            document.getElementById('overdueDaysInput').value = settings.overdueDays;
+            refreshAllUI();
+
+            // 點擊頁面其他地方收起右上角選單
+            document.addEventListener('click', function (e) {
+                const menu = document.getElementById('moreMenuDropdown');
+                const btn = document.getElementById('moreMenuBtn');
+                if (menu && btn && !menu.contains(e.target) && !btn.contains(e.target)) {
+                    menu.classList.add('hidden');
+                }
+            });
+        };
+
+        // 載入 LocalStorage
+        function loadFromStorage() {
+            try {
+                const savedSlots = localStorage.getItem(STORAGE_KEY_SLOTS);
+                if (savedSlots) {
+                    slotsData = JSON.parse(savedSlots);
+                }
+
+                const savedMaster = localStorage.getItem(STORAGE_KEY_MASTER);
+                if (savedMaster) {
+                    const parsed = JSON.parse(savedMaster);
+                    masterLists = {
+                        vendors: Array.isArray(parsed.vendors) ? parsed.vendors : masterLists.vendors,
+                        items: Array.isArray(parsed.items) ? parsed.items : masterLists.items,
+                        specs: Array.isArray(parsed.specs) ? parsed.specs : masterLists.specs
+                    };
+                }
+
+                const savedSettings = localStorage.getItem(STORAGE_KEY_SETTINGS);
+                if (savedSettings) {
+                    const parsedSet = JSON.parse(savedSettings);
+                    if (parsedSet.overdueDays && parsedSet.overdueDays > 0) {
+                        settings.overdueDays = Number(parsedSet.overdueDays);
+                    }
+                }
+            } catch (err) {
+                console.error('載入本機資料錯誤:', err);
+            }
+        }
+
+        function saveSlotsToStorage() {
+            localStorage.setItem(STORAGE_KEY_SLOTS, JSON.stringify(slotsData));
+        }
+
+        function saveMasterToStorage() {
+            localStorage.setItem(STORAGE_KEY_MASTER, JSON.stringify(masterLists));
+        }
+
+        function saveSettingsToStorage() {
+            localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(settings));
+        }
+
+        // 產生儲位 Key
+        function getSlotKey(layer, aisle, pallet) {
+            return `L${layer}-A${aisle}-P${pallet}`;
+        }
+
+        // 計算已存放天數 (至少顯示 1 天或實際天數，與截圖 "1天" 一致)
+        function calcStoredDays(inboundTimeStr) {
+            if (!inboundTimeStr) return 0;
+            const inDate = new Date(inboundTimeStr);
+            if (isNaN(inDate.getTime())) return 0;
+            const now = new Date();
+            const diffDays = Math.floor((now - inDate) / (1000 * 60 * 60 * 24));
+            return diffDays <= 0 ? 1 : diffDays;
+        }
+
+        // 格式化時間顯示
+        function formatDateTime(isoStr) {
+            if (!isoStr) return '';
+            return isoStr.replace('T', ' ').replace(/-/g, '/');
+        }
+
+        // =====================================================================
+        // 全畫面同步更新
+        // =====================================================================
+        function refreshAllUI() {
+            updateLayerCounts();
+            updateFilterDropdowns();
+            updateModalQuickSelects();
+            renderMasterTags();
+            renderGrid();
+            renderFifoList();
+        }
+
+        // 1. 更新 3 個層別按鈕上的存放數量
+        function updateLayerCounts() {
+            const counts = { 1: 0, 2: 0, 3: 0 };
+            Object.values(slotsData).forEach(slot => {
+                if (slot && counts[slot.layer] !== undefined) {
+                    counts[slot.layer]++;
+                }
+            });
+
+            LAYERS.forEach(lvl => {
+                const countEl = document.getElementById(`layerCount${lvl}`);
+                if (countEl) countEl.textContent = counts[lvl];
+            });
+        }
+
+        // 切換目前檢視的層別
+        function selectLayer(layer) {
+            currentLayer = layer;
+            document.querySelectorAll('.layer-tab').forEach(btn => {
+                const btnLayer = Number(btn.dataset.layer);
+                if (btnLayer === layer) {
+                    btn.className = 'layer-tab py-2 px-3 rounded-xl text-sm font-semibold transition text-center bg-[#1D63DC] text-white shadow-xs';
+                } else {
+                    btn.className = 'layer-tab py-2 px-3 rounded-xl text-sm font-medium transition text-center bg-[#F1F5F9] text-slate-700 hover:bg-slate-200';
+                }
+            });
+            renderGrid();
+        }
+
+        // 2. 更新篩選下拉選單（整合「目前已入庫資料」+「常用清單」）
+        function updateFilterDropdowns() {
+            const vendorSet = new Set(masterLists.vendors);
+            const itemSet = new Set(masterLists.items);
+            const specSet = new Set(masterLists.specs);
+
+            Object.values(slotsData).forEach(slot => {
+                if (slot.vendor) vendorSet.add(slot.vendor);
+                if (slot.item) itemSet.add(slot.item);
+                if (slot.spec) specSet.add(slot.spec);
+            });
+
+            populateSelect('filterVendor', '全部廠商', vendorSet, filterVendor);
+            populateSelect('filterItem', '全部品項', itemSet, filterItem);
+            populateSelect('filterSpec', '全部規格', specSet, filterSpec);
+        }
+
+        function populateSelect(selectId, defaultLabel, valuesSet, currentValue) {
+            const el = document.getElementById(selectId);
+            if (!el) return;
+            let html = `<option value="">${defaultLabel}</option>`;
+            Array.from(valuesSet).forEach(val => {
+                const selected = val === currentValue ? 'selected' : '';
+                html += `<option value="${escapeHtml(val)}" ${selected}>${escapeHtml(val)}</option>`;
+            });
+            el.innerHTML = html;
+        }
+
+        function handleFilterChange() {
+            filterVendor = document.getElementById('filterVendor').value;
+            filterItem = document.getElementById('filterItem').value;
+            filterSpec = document.getElementById('filterSpec').value;
+            renderGrid();
+            renderFifoList();
+        }
+
+        function clearFilters() {
+            filterVendor = '';
+            filterItem = '';
+            filterSpec = '';
+            showAllFifo = false;
+            document.getElementById('filterVendor').value = '';
+            document.getElementById('filterItem').value = '';
+            document.getElementById('filterSpec').value = '';
+            renderGrid();
+            renderFifoList();
+            showToast('已清除篩選條件');
+        }
+
+        function handleOverdueDaysChange() {
+            const val = parseInt(document.getElementById('overdueDaysInput').value, 10);
+            if (!isNaN(val) && val >= 1) {
+                settings.overdueDays = val;
+                saveSettingsToStorage();
+                renderGrid();
+                renderFifoList();
+            }
+        }
+
+        // 判斷某個有貨儲位是否符合上方篩選條件
+        function isSlotMatchedFilter(slot) {
+            if (!slot) return false;
+            if (filterVendor && slot.vendor !== filterVendor) return false;
+            if (filterItem && slot.item !== filterItem) return false;
+            if (filterSpec && slot.spec !== filterSpec) return false;
+            return true;
+        }
+
+        function hasActiveFilter() {
+            return Boolean(filterVendor || filterItem || filterSpec);
+        }
+
+        // =====================================================================
+        // 3. 渲染 10x10 儲位網格（橫向：棧板 1–10，直向：走道 1–10）
+        // =====================================================================
+        function renderGrid() {
+            const container = document.getElementById('palletGridBody');
+            const activeFilter = hasActiveFilter();
+            const threshold = settings.overdueDays || 30;
+            let html = '';
+
+            AISLES.forEach(aisle => {
+                html += `<div class="grid grid-cols-[20px_repeat(10,minmax(0,1fr))] gap-[3px] items-center">`;
+                // 左側 Y 軸走道編號 (1~10)
+                html += `<div class="text-[11px] font-medium text-slate-500 text-center">${aisle}</div>`;
+
+                PALLETS.forEach(pallet => {
+                    const key = getSlotKey(currentLayer, aisle, pallet);
+                    const slot = slotsData[key];
+
+                    if (slot) {
+                        const days = calcStoredDays(slot.inboundTime);
+                        const isOverdue = days > threshold;
+                        const matched = isSlotMatchedFilter(slot);
+
+                        // 篩選時：符合保持清晰高亮，不符合半透明淡化
+                        const opacityClass = activeFilter
+                            ? (matched ? 'opacity-100 ring-1 ring-blue-500/60' : 'opacity-25')
+                            : 'opacity-100';
+
+                        // 顏色樣式：正常淺藍(#DBEAFE)，逾期淺紅(#FEE2E2)
+                        const boxColor = isOverdue
+                            ? 'bg-[#FEE2E2] border-red-300 text-red-900'
+                            : 'bg-[#DBEAFE] border-blue-300 text-blue-950';
+                        const subTextColor = isOverdue ? 'text-red-600' : 'text-blue-700';
+
+                        html += `
+                        <button type="button"
+                            onclick="openSlotModal(${currentLayer}, ${aisle}, ${pallet})"
+                            title="第${currentLayer}層 走道${aisle} 棧板${pallet}｜${slot.vendor} - ${slot.item} (${days}天)"
+                            class="grid-cell aspect-square w-full rounded-[6px] border ${boxColor} ${opacityClass} flex flex-col items-center justify-center px-[1px] overflow-hidden leading-none focus:outline-none">
+                            <span class="text-[10px] sm:text-[11px] font-bold tracking-tighter truncate w-full text-center">${escapeHtml(slot.vendor)}</span>
+                            <span class="text-[9px] sm:text-[10px] font-medium ${subTextColor} mt-[2px] tracking-tighter">${days}天</span>
+                        </button>`;
+                    } else {
+                        // 空儲位：淺灰方塊 (#E5E7EB / #F3F4F6)
+                        const emptyOpacity = activeFilter ? 'opacity-45' : 'opacity-100';
+                        html += `
+                        <button type="button"
+                            onclick="openSlotModal(${currentLayer}, ${aisle}, ${pallet})"
+                            title="第${currentLayer}層 走道${aisle} 棧板${pallet} (空儲位，點擊填寫)"
+                            class="grid-cell aspect-square w-full rounded-[6px] bg-[#EBEEF2] hover:bg-slate-300/80 border border-slate-200/80 ${emptyOpacity} focus:outline-none">
+                        </button>`;
+                    }
+                });
+
+                html += `</div>`;
+            });
+
+            container.innerHTML = html;
+        }
+
+        // =====================================================================
+        // 4. 渲染出倉清單（FIFO 先進先出排序）
+        // =====================================================================
+        function toggleShowAllFifo() {
+            showAllFifo = !showAllFifo;
+            const btn = document.getElementById('showAllFifoBtn');
+            btn.textContent = showAllFifo ? '收合全部庫存' : '顯示全部庫存';
+            renderFifoList();
+        }
+
+        function renderFifoList() {
+            const container = document.getElementById('fifoListContainer');
+            const helperText = document.getElementById('fifoHelperText');
+            const activeFilter = hasActiveFilter();
+            const threshold = settings.overdueDays || 30;
+
+            // 若未選擇任何篩選條件且未開啟「顯示全部庫存」，顯示截圖中的引導提示文字
+            if (!activeFilter && !showAllFifo) {
+                helperText.classList.remove('hidden');
+                container.innerHTML = '';
+                return;
+            }
+
+            helperText.classList.add('hidden');
+
+            // 篩選跨 3 層所有符合條件的棧板
+            const matchedSlots = Object.values(slotsData).filter(slot => isSlotMatchedFilter(slot));
+
+            // 嚴格依照入倉時間由舊到新排序（先進先出 FIFO）
+            matchedSlots.sort((a, b) => new Date(a.inboundTime) - new Date(b.inboundTime));
+
+            if (matchedSlots.length === 0) {
+                container.innerHTML = `
+                <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 text-center text-xs text-slate-500">
+                    目前沒有符合條件的已存放棧板。
+                </div>`;
+                return;
+            }
+
+            container.innerHTML = matchedSlots.map((slot, idx) => {
+                const days = calcStoredDays(slot.inboundTime);
+                const isOverdue = days > threshold;
+                const badgeClass = isOverdue
+                    ? 'bg-red-100 text-red-700 border-red-200'
+                    : 'bg-blue-50 text-blue-700 border-blue-200';
+                const fifoRankBadge = idx === 0
+                    ? `<span class="text-[10px] font-bold bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded">優先出倉 #1</span>`
+                    : '';
+
+                return `
+                <div class="p-3 rounded-xl border ${isOverdue ? 'border-red-200 bg-red-50/30' : 'border-slate-200 bg-white'} shadow-2xs flex items-center justify-between gap-2.5">
+                    <div class="min-w-0 flex-1 space-y-1">
+                        <div class="flex flex-wrap items-center gap-1.5">
+                            <span class="text-xs font-bold text-slate-900">第${slot.layer}層 · 走道${slot.aisle} · 棧板${slot.pallet}</span>
+                            <span class="text-[11px] font-bold px-2 py-0.5 rounded-full border ${badgeClass}">已存 ${days} 天</span>
+                            ${fifoRankBadge}
+                        </div>
+                        <div class="text-xs sm:text-sm font-semibold text-slate-800 truncate">
+                            ${escapeHtml(slot.vendor)} － ${escapeHtml(slot.item)} <span class="text-slate-500 font-normal">(${escapeHtml(slot.spec)})</span>
+                        </div>
+                        <div class="text-[11px] text-slate-400">
+                            入倉：${formatDateTime(slot.inboundTime)}
+                        </div>
+                    </div>
+
+                    <div class="flex flex-col gap-1.5 shrink-0">
+                        <button type="button" onclick="confirmQuickOutbound('${getSlotKey(slot.layer, slot.aisle, slot.pallet)}')" class="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white text-xs font-bold rounded-lg shadow-2xs transition">
+                            一鍵出倉
+                        </button>
+                        <button type="button" onclick="openSlotModal(${slot.layer}, ${slot.aisle}, ${slot.pallet})" class="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-medium rounded-lg transition text-center">
+                            編輯
+                        </button>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        // =====================================================================
+        // 5. 格子填寫 / 編輯 / 出倉彈窗操作
+        // =====================================================================
+        function updateModalQuickSelects() {
+            const vendorSet = new Set(masterLists.vendors);
+            const itemSet = new Set(masterLists.items);
+            const specSet = new Set(masterLists.specs);
+
+            Object.values(slotsData).forEach(s => {
+                if (s.vendor) vendorSet.add(s.vendor);
+                if (s.item) itemSet.add(s.item);
+                if (s.spec) specSet.add(s.spec);
+            });
+
+            fillQuickSelectAndDatalist('quickSelectVendor', 'datalistVendors', '從常用廠商選取...', vendorSet);
+            fillQuickSelectAndDatalist('quickSelectItem', 'datalistItems', '從常用品項選取...', itemSet);
+            fillQuickSelectAndDatalist('quickSelectSpec', 'datalistSpecs', '從常用規格選取...', specSet);
+        }
+
+        function fillQuickSelectAndDatalist(selectId, datalistId, placeholder, valuesSet) {
+            const sel = document.getElementById(selectId);
+            const dl = document.getElementById(datalistId);
+            const arr = Array.from(valuesSet);
+
+            if (sel) {
+                sel.innerHTML = `<option value="">${placeholder}</option>` +
+                    arr.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
+            }
+            if (dl) {
+                dl.innerHTML = arr.map(v => `<option value="${escapeHtml(v)}"></option>`).join('');
+            }
+        }
+
+        function syncQuickSelect(selectId, inputId) {
+            const sel = document.getElementById(selectId);
+            const inp = document.getElementById(inputId);
+            if (sel && inp && sel.value) {
+                inp.value = sel.value;
+                sel.value = '';
+            }
+        }
+
+        function openSlotModal(layer, aisle, pallet) {
+            const key = getSlotKey(layer, aisle, pallet);
+            const slot = slotsData[key];
+
+            document.getElementById('editLayer').value = layer;
+            document.getElementById('editAisle').value = aisle;
+            document.getElementById('editPallet').value = pallet;
+            document.getElementById('modalLocationTitle').textContent = `第${layer}層 - 走道 ${aisle} - 棧板 ${pallet}`;
+
+            const subtitleEl = document.getElementById('modalStatusSubtitle');
+            const outboundBtn = document.getElementById('btnOutboundSlot');
+
+            if (slot) {
+                const days = calcStoredDays(slot.inboundTime);
+                subtitleEl.textContent = `已存放 ${days} 天 · 可修改內容或執行出倉`;
+                subtitleEl.className = 'text-xs text-blue-600 font-medium mt-0.5';
+                outboundBtn.classList.remove('hidden');
+
+                document.getElementById('inputInboundTime').value = slot.inboundTime;
+                document.getElementById('inputVendor').value = slot.vendor;
+                document.getElementById('inputItem').value = slot.item;
+                document.getElementById('inputSpec').value = slot.spec;
+            } else {
+                subtitleEl.textContent = '空儲位 · 請填寫入庫資訊';
+                subtitleEl.className = 'text-xs text-slate-500 mt-0.5';
+                outboundBtn.classList.add('hidden');
+
+                fillCurrentDateTime();
+                document.getElementById('inputVendor').value = '';
+                document.getElementById('inputItem').value = '';
+                document.getElementById('inputSpec').value = '';
+            }
+
+            document.getElementById('slotModal').classList.remove('hidden');
+        }
+
+        function closeSlotModal() {
+            document.getElementById('slotModal').classList.add('hidden');
+        }
+
+        function fillCurrentDateTime() {
+            const now = new Date();
+            const offset = now.getTimezoneOffset() * 60000;
+            const localISO = new Date(now.getTime() - offset).toISOString().slice(0, 16);
+            document.getElementById('inputInboundTime').value = localISO;
+        }
+
+        function saveSlotForm(e) {
+            e.preventDefault();
+            const layer = Number(document.getElementById('editLayer').value);
+            const aisle = Number(document.getElementById('editAisle').value);
+            const pallet = Number(document.getElementById('editPallet').value);
+            const key = getSlotKey(layer, aisle, pallet);
+
+            const inboundTime = document.getElementById('inputInboundTime').value;
+            const vendor = document.getElementById('inputVendor').value.trim();
+            const item = document.getElementById('inputItem').value.trim();
+            const spec = document.getElementById('inputSpec').value.trim();
+
+            if (!inboundTime || !vendor || !item || !spec) return;
+
+            slotsData[key] = {
+                layer,
+                aisle,
+                pallet,
+                inboundTime,
+                vendor,
+                item,
+                spec
+            };
+
+            // 自動將新輸入的廠商、品項、規格加入常用清單（若尚未存在）
+            let masterUpdated = false;
+            if (!masterLists.vendors.includes(vendor)) {
+                masterLists.vendors.push(vendor);
+                masterUpdated = true;
+            }
+            if (!masterLists.items.includes(item)) {
+                masterLists.items.push(item);
+                masterUpdated = true;
+            }
+            if (!masterLists.specs.includes(spec)) {
+                masterLists.specs.push(spec);
+                masterUpdated = true;
+            }
+
+            saveSlotsToStorage();
+            if (masterUpdated) saveMasterToStorage();
+
+            closeSlotModal();
+            refreshAllUI();
+            showToast(`已儲存：第${layer}層 走道${aisle} 棧板${pallet}`);
+        }
+
+        function confirmOutboundCurrentSlot() {
+            const layer = Number(document.getElementById('editLayer').value);
+            const aisle = Number(document.getElementById('editAisle').value);
+            const pallet = Number(document.getElementById('editPallet').value);
+            const key = getSlotKey(layer, aisle, pallet);
+            const slot = slotsData[key];
+            if (!slot) return;
+
+            openConfirmDialog(
+                '確認棧板出倉',
+                `確定將「第${layer}層 · 走道${aisle} · 棧板${pallet}」(${slot.vendor} - ${slot.item}) 出倉並清空此格嗎？`,
+                () => {
+                    delete slotsData[key];
+                    saveSlotsToStorage();
+                    closeSlotModal();
+                    refreshAllUI();
+                    showToast(`已完成出倉：第${layer}層 走道${aisle} 棧板${pallet}`);
+                }
+            );
+        }
+
+        function confirmQuickOutbound(key) {
+            const slot = slotsData[key];
+            if (!slot) return;
+
+            openConfirmDialog(
+                '確認一鍵出倉',
+                `確定將「第${slot.layer}層 · 走道${slot.aisle} · 棧板${slot.pallet}」(${slot.vendor} - ${slot.item}) 出倉嗎？`,
+                () => {
+                    delete slotsData[key];
+                    saveSlotsToStorage();
+                    refreshAllUI();
+                    showToast(`已完成出倉：第${slot.layer}層 走道${slot.aisle} 棧板${slot.pallet}`);
+                }
+            );
+        }
+
+        // =====================================================================
+        // 6. 底部摺疊面板：管理廠商 / 品項 / 規格清單
+        // =====================================================================
+        function toggleMasterAccordion() {
+            const body = document.getElementById('masterAccordionBody');
+            const arrow = document.getElementById('accordionArrow');
+            const isHidden = body.classList.contains('hidden');
+
+            if (isHidden) {
+                body.classList.remove('hidden');
+                arrow.style.transform = 'rotate(90deg)';
+            } else {
+                body.classList.add('hidden');
+                arrow.style.transform = 'rotate(0deg)';
+            }
+        }
+
+        function renderMasterTags() {
+            renderTagGroup('vendors', 'masterVendorsTags');
+            renderTagGroup('items', 'masterItemsTags');
+            renderTagGroup('specs', 'masterSpecsTags');
+        }
+
+        function renderTagGroup(type, containerId) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            const list = masterLists[type] || [];
+
+            if (list.length === 0) {
+                container.innerHTML = `<span class="text-[11px] text-slate-400">尚未建立項目</span>`;
+                return;
+            }
+
+            container.innerHTML = list.map((val, idx) => `
+                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-slate-300 rounded-lg text-xs text-slate-700">
+                    <span>${escapeHtml(val)}</span>
+                    <button type="button" onclick="removeMasterItem('${type}', ${idx})" class="text-slate-400 hover:text-rose-600 font-bold leading-none">×</button>
+                </span>
+            `).join('');
+        }
+
+        function addMasterItem(type, inputId) {
+            const input = document.getElementById(inputId);
+            const val = input.value.trim();
+            if (!val) return;
+
+            if (!masterLists[type].includes(val)) {
+                masterLists[type].push(val);
+                saveMasterToStorage();
+                refreshAllUI();
+                showToast(`已新增：${val}`);
+            } else {
+                showToast('此項目已存在清單中');
+            }
+            input.value = '';
+        }
+
+        function removeMasterItem(type, index) {
+            masterLists[type].splice(index, 1);
+            saveMasterToStorage();
+            refreshAllUI();
+        }
+
+        // =====================================================================
+        // 7. 匯出 CSV、範例資料載入與清空重置
+        // =====================================================================
+        function toggleMoreMenu(e) {
+            e.stopPropagation();
+            document.getElementById('moreMenuDropdown').classList.toggle('hidden');
+        }
+
+        function closeMoreMenu() {
+            document.getElementById('moreMenuDropdown').classList.add('hidden');
+        }
+
+        function exportToCSV() {
+            const allSlots = Object.values(slotsData).sort((a, b) => {
+                if (a.layer !== b.layer) return a.layer - b.layer;
+                if (a.aisle !== b.aisle) return a.aisle - b.aisle;
+                return a.pallet - b.pallet;
+            });
+
+            if (allSlots.length === 0) {
+                showToast('目前無任何庫存資料可匯出');
+                return;
+            }
+
+            const headers = ['層別', '走道', '棧板', '入倉時間', '已存放天數', '是否逾期', '廠商', '品項', '規格'];
+            const threshold = settings.overdueDays || 30;
+            const rows = [headers];
+
+            allSlots.forEach(s => {
+                const days = calcStoredDays(s.inboundTime);
+                rows.push([
+                    `第${s.layer}層`,
+                    `走道${s.aisle}`,
+                    `棧板${s.pallet}`,
+                    formatDateTime(s.inboundTime),
+                    days,
+                    days > threshold ? '逾期' : '正常',
+                    s.vendor,
+                    s.item,
+                    s.spec
+                ]);
+            });
+
+            const csvContent = '\uFEFF' + rows.map(r =>
+                r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')
+            ).join('\n');
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const dateStr = new Date().toISOString().slice(0, 10);
+            a.href = url;
+            a.download = `冷凍庫棧板庫存_${dateStr}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            showToast(`已匯出 ${allSlots.length} 筆棧板資料`);
+        }
+
+        function confirmLoadSample() {
+            openConfirmDialog(
+                '載入範例庫存資料',
+                '將會載入多筆模擬庫存（包含第1~3層及超過30天標紅的棧板）供您測試操作，確定載入嗎？',
+                () => {
+                    loadSampleData();
+                }
+            );
+        }
+
+        function loadSampleData() {
+            slotsData = {};
+            const samples = [
+                { layer: 1, aisle: 1, pallet: 1, daysAgo: 0, vendor: '佰研', item: '去骨雞腿肉', spec: '15kg/箱' },
+                { layer: 1, aisle: 1, pallet: 2, daysAgo: 12, vendor: '大成食品', item: '清雞胸肉', spec: '15kg/箱' },
+                { layer: 1, aisle: 2, pallet: 4, daysAgo: 35, vendor: '卜蜂企業', item: '三節翅', spec: '2kg×6包/箱' },
+                { layer: 1, aisle: 3, pallet: 1, daysAgo: 42, vendor: '佰研', item: '冷凍白蝦', spec: '10kg/箱' },
+                { layer: 1, aisle: 5, pallet: 7, daysAgo: 5, vendor: '洽富實業', item: '冷凍全雞', spec: '20kg/件' },
+                { layer: 1, aisle: 8, pallet: 3, daysAgo: 19, vendor: '超秦企業', item: '去骨雞腿肉', spec: '15kg/箱' },
+                { layer: 2, aisle: 1, pallet: 1, daysAgo: 8, vendor: '大成食品', item: '冷凍全雞', spec: '20kg/件' },
+                { layer: 2, aisle: 4, pallet: 6, daysAgo: 31, vendor: '佰研', item: '去骨雞腿肉', spec: '15kg/箱' },
+                { layer: 2, aisle: 6, pallet: 2, daysAgo: 2, vendor: '卜蜂企業', item: '豬五花肉片', spec: '10kg/箱' },
+                { layer: 3, aisle: 1, pallet: 1, daysAgo: 45, vendor: '洽富實業', item: '清雞胸肉', spec: '15kg/箱' },
+                { layer: 3, aisle: 2, pallet: 5, daysAgo: 14, vendor: '佰研', item: '冷凍白蝦', spec: '10kg/箱' }
+            ];
+
+            samples.forEach(s => {
+                const d = new Date(Date.now() - s.daysAgo * 86400000);
+                const offset = d.getTimezoneOffset() * 60000;
+                const localISO = new Date(d.getTime() - offset).toISOString().slice(0, 16);
+                const key = getSlotKey(s.layer, s.aisle, s.pallet);
+                slotsData[key] = {
+                    layer: s.layer,
+                    aisle: s.aisle,
+                    pallet: s.pallet,
+                    inboundTime: localISO,
+                    vendor: s.vendor,
+                    item: s.item,
+                    spec: s.spec
+                };
+            });
+
+            saveSlotsToStorage();
+            refreshAllUI();
+            showToast('已載入範例庫存資料');
+        }
+
+        function confirmResetAll() {
+            openConfirmDialog(
+                '清空全部 300 格儲位',
+                '確定要清除全部 3 層共 300 個儲位的資料嗎？此動作無法復原。',
+                () => {
+                    slotsData = {};
+                    saveSlotsToStorage();
+                    refreshAllUI();
+                    showToast('已清空所有儲位資料');
+                }
+            );
+        }
+
+        // =====================================================================
+        // 自訂確認彈窗與 Toast 通知
+        // =====================================================================
+        function openConfirmDialog(title, desc, onConfirm) {
+            document.getElementById('confirmTitle').textContent = title;
+            document.getElementById('confirmDesc').textContent = desc;
+            const okBtn = document.getElementById('confirmOkBtn');
+            okBtn.onclick = function () {
+                closeConfirmDialog();
+                if (typeof onConfirm === 'function') onConfirm();
+            };
+            document.getElementById('confirmDialog').classList.remove('hidden');
+        }
+
+        function closeConfirmDialog() {
+            document.getElementById('confirmDialog').classList.add('hidden');
+        }
+
+        function showToast(message) {
+            const box = document.getElementById('toastBox');
+            const msg = document.getElementById('toastMsg');
+            msg.textContent = message;
+
+            box.classList.remove('opacity-0', 'translate-y-2');
+            if (toastTimer) clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => {
+                box.classList.add('opacity-0', 'translate-y-2');
+            }, 2200);
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+    </script>
+</body>
+</html>
